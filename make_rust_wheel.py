@@ -44,8 +44,14 @@ def parse_sdist(sdist: Path, work: Path, abi_min: str) -> tuple[Path, dict]:
     # PyO3's abi3 version is chosen by the lowest abi3-py3XX feature present.
     # Normalise all of them to 3.8 for the widest possible wheel tag.
     for mf in list(root.rglob("Cargo.toml")) + list(root.rglob("pyproject.toml")):
+        # Vendored directories are checksummed by cargo; editing them breaks
+        # the build (orjson vendors pyo3-ffi under include/cargo).
+        if any(p.joinpath(".cargo-checksum.json").exists() for p in (mf.parent, *mf.parents)):
+            continue
         text = mf.read_text()
-        patched = re.sub(r"abi3-py3\d\d", f"abi3-{abi_min}", text)
+        # Only rewrite quoted feature *values*, never feature key names
+        # (e.g. `abi3-py38 = ["abi3-py39"]` would become a self-cycle).
+        patched = re.sub(r'"abi3-py3\d\d"', f'"abi3-{abi_min}"', text)
         if patched != text:
             mf.write_text(patched)
     with (root / "pyproject.toml").open("rb") as f:
@@ -86,6 +92,10 @@ def main() -> None:
     ap.add_argument("--abi", required=True, help="python tag, e.g. cp38 (implies abi3)")
     ap.add_argument("--platform-tags", default="android_24_arm64_v8a,linux_aarch64")
     ap.add_argument("--features", default="", help="extra cargo features, comma separated")
+    ap.add_argument("--limited-api", action="store_true", default=True,
+                    help="emit abi3 tags (default)")
+    ap.add_argument("--no-limited-api", dest="limited_api", action="store_false",
+                    help="emit a cpXX-cpXX wheel instead")
     ap.add_argument("--abi-min", default="py38",
                     help="PyO3 abi3 baseline feature, e.g. py38 or py39")
     ap.add_argument("--python-versions", default="3.13,3.14",
@@ -112,12 +122,6 @@ def main() -> None:
 
         maturin = pyproject.get("tool", {}).get("maturin", {})
         ext = pyproject.get("tool", {}).get("setuptools-rust", {}).get("ext-modules", [])
-        if maturin.get("module-name"):
-            module_name = maturin["module-name"]
-        elif ext:
-            module_name = ext[0]["target"]
-        else:
-            raise RuntimeError("no module name in pyproject.toml")
 
         python_source = maturin.get("python-source")
         if not python_source:
@@ -128,6 +132,16 @@ def main() -> None:
         with manifest.open("rb") as f:
             cargo = tomllib.load(f)
         libname = (cargo.get("lib") or {}).get("name") or cargo["package"]["name"].replace("-", "_")
+
+        if maturin.get("module-name"):
+            module_name = maturin["module-name"]
+        elif ext:
+            module_name = ext[0]["target"]
+        elif python_source:
+            # maturin's default with python-source: <dist>.<lib>
+            module_name = f"{norm}.{libname}"
+        else:
+            module_name = norm
 
         # Build with the local interpreter for PyO3's build config.  The crate's
         # abi3 + extension-module features keep libpython out of the link line.
@@ -238,7 +252,8 @@ def main() -> None:
 
         wheel_lines = ["Wheel-Version: 1.0", "Generator: android-abi3-rust-wheel-builder",
                        "Root-Is-Purelib: false"]
-        wheel_lines += [f"Tag: {args.abi}-abi3-{t}" for t in tags]
+        abi_part = "abi3" if args.limited_api else args.abi
+        wheel_lines += [f"Tag: {args.abi}-{abi_part}-{t}" for t in tags]
         (dist_info / "WHEEL").write_text("\n".join(wheel_lines) + "\n")
 
         scripts = project.get("scripts") or project.get("entry-points", {}).get("console-scripts")
@@ -264,7 +279,7 @@ def main() -> None:
         (dist_info / "RECORD").write_text("\n".join(record) + "\n")
 
         platform_tag = ".".join(tags)
-        wheel_name = f"{norm}-{args.version}-{args.abi}-abi3-{platform_tag}.whl"
+        wheel_name = f"{norm}-{args.version}-{args.abi}-{abi_part}-{platform_tag}.whl"
         args.out.mkdir(parents=True, exist_ok=True)
         wheel_path = args.out / wheel_name
         with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:

@@ -33,6 +33,7 @@ build_one() {
     safetensors) ver=0.8.0;   abi=cp38; feats="pyo3/extension-module" ;;
     watchfiles)  ver=1.3.0;   abi=cp38; feats="" ;;
     tokenizers)  ver=0.23.3;  abi=cp39; feats=""; extra="--abi-min py39" ;;
+    orjson)      ver=3.13.0;  abi=cp314; feats=""; extra="--no-limited-api --python-versions 3.14" ;;
     *) echo "unknown package: $1" >&2; return 1 ;;
   esac
   fetch_sdist "$1" "$ver"

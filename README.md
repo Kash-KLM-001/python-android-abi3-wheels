@@ -22,6 +22,7 @@ The wheel tags are `cp3x-abi3-android_24_arm64_v8a` (API 24+, arm64-v8a).
 | `watchfiles` | `cp38-abi3` | built | vendored Rust notify (needs `anyio`) |
 | `tokenizers` | `cp39-abi3` | built | upstream needs `weakref`, unavailable under `abi3-py38` |
 | `cryptography` | `cp39-abi3` | blocked | needs an OpenSSL built with the NDK |
+| `orjson` | `cp314-cp314` | built (Termux) | not abi3: uses non-limited CPython structs; a 3.13 build needs 3.13 headers |
 
 `cp38-abi3` / `cp39-abi3` is the *tag*: one binary ABI for Python 3.8+ / 3.9+.
 The wheels still contain two copies of the compiled extension because PyO3 on
@@ -29,9 +30,9 @@ Android always links a versioned `libpython3.x.so` (unlike our `cv2` wheel).
 A tiny import shim selects the 3.13 (Pydroid) or 3.14 (Termux) copy at import
 time, so one `.whl` covers both runtimes.
 
-Version-locked (`cp3xx`, not abi3) packages need one wheel per Python version
-and are **not** part of this repo: `pydantic-core`, `orjson`, `jiter`,
-`rpds-py`, `tiktoken`, `polars`.
+Version-locked (`cp3xx`, not abi3) packages need one wheel per Python version.
+`orjson` is included for Termux 3.14; other version-locked crates
+(`pydantic-core`, `jiter`, `rpds-py`, `tiktoken`, `polars`) are not built yet.
 
 ## Install
 
